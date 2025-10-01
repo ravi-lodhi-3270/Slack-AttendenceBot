@@ -29,7 +29,7 @@ export class AppController {
       },
     },
   })
-  @UseGuards(JwtAuthGuard, AccessGuard)
+  // @UseGuards(JwtAuthGuard, AccessGuard)
   @UseInterceptors(FileInterceptor('file'))
   @Post('upload')
   upload(@UploadedFile(new ParseFilePipeBuilder().build()) file: File) {

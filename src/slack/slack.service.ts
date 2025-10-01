@@ -1,75 +1,46 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { App, LogLevel } from '@slack/bolt';
-import { AttendanceService } from '../attendance/attendance.service';
+import { Injectable } from '@nestjs/common';
+import { App, ExpressReceiver } from '@slack/bolt';
 
 @Injectable()
 export class SlackService {
-  private app: App;
+  private receiver: ExpressReceiver;
+  public slackApp: App;
 
-  constructor(private attendanceService: AttendanceService) {
-    this.app = new App({
-      token: process.env.SLACK_BOT_TOKEN,
-      signingSecret: process.env.SLACK_SIGNING_SECRET,
-      logLevel: LogLevel.INFO,
+  constructor() {
+    if (!process.env.SLACK_SIGNING_SECRET || !process.env.SLACK_BOT_TOKEN) {
+      throw new Error('Slack env variables not set!');
+    }
+
+    this.receiver = new ExpressReceiver({
+      signingSecret: process.env.SLACK_SIGNING_SECRET!,
+      endpoints: '/slack/events',
+      processBeforeResponse: true,
     });
 
-    this.registerCommands();
-    this.start();
-  }
-
-  private registerCommands() {
-    this.app.command('/attendance-in', async ({ ack, say, command }) => {
-      await ack();
-      await this.attendanceService.markAttendanceIn(command.user_id);
-      await say(
-        `<@${command.user_id}> marked Attendance In at ${new Date().toLocaleTimeString()}`,
-      );
+    this.slackApp = new App({
+      token: process.env.SLACK_BOT_TOKEN!,
+      receiver: this.receiver,
     });
 
-    this.app.command('/attendance-out', async ({ ack, say, command }) => {
-      await ack();
-      await this.attendanceService.markAttendanceOut(command.user_id);
-      await say(
-        `<@${command.user_id}> marked Attendance Out at ${new Date().toLocaleTimeString()}`,
-      );
+    this.slackApp.start().then(() => {
+      console.log('⚡️ Slack Bolt app is running inside NestJS!');
     });
 
-    this.app.command('/lunch-in', async ({ ack, say, command }) => {
-      await ack();
-      await this.attendanceService.markLunchIn(command.user_id);
-      await say(
-        `<@${command.user_id}> started lunch at ${new Date().toLocaleTimeString()}. Please be back in 45 mins.`,
-      );
-      // TODO: add timer for reminder
+    // Specific listeners
+    this.slackApp.message(async ({ message, say }) => {
+      console.log('[Slack] Message event:', message);
+      if ('user' in message) {
+        await say(`Hey <@${message.user}>, I see you said hello!`);
+      }
     });
 
-    this.app.command('/lunch-out', async ({ ack, say, command }) => {
-      await ack();
-      await this.attendanceService.markLunchOut(command.user_id);
-      await say(
-        `<@${command.user_id}> ended lunch at ${new Date().toLocaleTimeString()}`,
-      );
-    });
-
-    this.app.command('/break-in', async ({ ack, say, command }) => {
-      await ack();
-      await this.attendanceService.markBreakIn(command.user_id);
-      await say(
-        `<@${command.user_id}> started break at ${new Date().toLocaleTimeString()}. Please be back in 15 mins.`,
-      );
-    });
-
-    this.app.command('/break-out', async ({ ack, say, command }) => {
-      await ack();
-      await this.attendanceService.markBreakOut(command.user_id);
-      await say(
-        `<@${command.user_id}> ended break at ${new Date().toLocaleTimeString()}`,
-      );
+    this.slackApp.event('app_mention', async ({ event, say }) => {
+      console.log('[Slack] Mention received:', event.text);
+      await say(`Hi <@${event.user}>!`);
     });
   }
 
-  private async start() {
-    await this.app.start(Number(process.env.PORT) || 3000);
-    Logger.log('SlackBot is running...');
+  public getReceiverApp() {
+    return this.receiver.app;
   }
 }

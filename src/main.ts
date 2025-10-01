@@ -23,6 +23,7 @@ import {
 } from '@Common';
 import { appConfigFactory } from '@Config';
 import { AppModule } from './app.module';
+import { SlackService } from './slack/slack.service';
 
 const logger = new LoggerService();
 
@@ -30,7 +31,9 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     logger: process.env.NODE_TYPE === NodeType.Master ? undefined : false,
   });
+  const slackService = app.get(SlackService);
 
+  app.use(slackService.getReceiverApp());
   const configService = app.get(ConfigService<EnvironmentVariables, true>);
   const utilsService = app.get(UtilsService);
   const appConfig = app.get<ConfigType<typeof appConfigFactory>>(
