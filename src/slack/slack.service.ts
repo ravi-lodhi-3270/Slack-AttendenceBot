@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { App, ExpressReceiver } from '@slack/bolt';
+import { App, ExpressReceiver, BlockAction, ButtonAction } from '@slack/bolt';
 import { AttendanceService } from 'src/attendance/attendance.service';
 
 @Injectable()
@@ -59,17 +59,21 @@ export class SlackService {
       if (!('user' in message) || !message.user) return;
 
       const userId = message.user;
-
-      // Fetch the latest attendance record for the user
       const lastAttendance =
         await this.attendanceService.getLastAttendance(userId);
 
       if (!lastAttendance) {
-        // No record → mark attendance in
-        await this.attendanceService.markAttendanceIn(userId);
-        await say(
-          `✅ <@${userId}>, you have punched in, To punch out type Out.`,
-        );
+        const { lateByMinutes } =
+          await this.attendanceService.markAttendanceIn(userId);
+
+        if (lateByMinutes && lateByMinutes > 0) {
+          await say(
+            `⏰ <@${userId}>, you punched in *${lateByMinutes} minutes late* today.`,
+          );
+        } else {
+          await say(`✅ <@${userId}>, you have punched in on time.`);
+        }
+
         return;
       }
 
@@ -122,6 +126,38 @@ export class SlackService {
         await this.scheduleBreakReminder(message.user, 1 / 3, say);
       }
     });
+
+    this.slackApp.action<BlockAction>(
+      { callback_id: 'break_reminder' },
+      async ({ ack, body, client }) => {
+        await ack();
+
+        const action = (body as any).actions?.[0];
+        const userId = body.user.id;
+
+        if (action?.type === 'button') {
+          const buttonAction = action as ButtonAction;
+
+          if (buttonAction.value === 'still') {
+            await client.chat.postMessage({
+              channel: userId,
+              text: `🙌 Got it <@${userId}>! Enjoy your extended break.`,
+            });
+          } else if (buttonAction.value === 'In') {
+            await this.attendanceService.markBreakOut(userId);
+            await client.chat.postMessage({
+              channel: userId,
+              text: `✅ Welcome back <@${userId}>! You're marked *IN*.`,
+            });
+          }
+        } else {
+          await client.chat.postMessage({
+            channel: userId,
+            text: `⚠️ Sorry <@${userId}>, I couldn't process your response.`,
+          });
+        }
+      },
+    );
   }
 
   formatReturnTime(durationMinutes: number): string {
